@@ -1,83 +1,67 @@
 #include <xc.inc>
- 
-;define port and constant
-Trigger_pin EQU 0
-ECHO_pin    EQU 1
-Time_out    EQU 36
-
-;start program
-    ORG 0x0000
-    GOTO MAIN
     
-;initialize ports
-INIT:
-    CLRF PORTB          ;clear portb
-    MOVLW 0xFE          ;set RB0 as output, RB1 as input
-    MOVWF TRISB         
-    RETURN
     
- ; Send a 10 탎 pulse on the trigger pin
-SEND_TRIGGER:
-    BCF PORTB, TRIGGER_PIN ; Set Trigger low
-    NOP
-    BSF PORTB, TRIGGER_PIN ; Set Trigger high
-    CALL DELAY_10US        ; Wait 10 탎
-    BCF PORTB, TRIGGER_PIN ; Set Trigger low
-    RETURN
+extrn	CCP_capture ,count_high, count_low, T1_setup, CCP_setup
+extrn	safety_dist   
 
-; Wait for Echo pin to go high and measure pulse duration
-WAIT_FOR_ECHO:
-    CLRF TMR0L             ; Clear Timer0
-    CLRF TMR0H
-    BSF T0CON, TMR0ON      ; Start Timer0
-WAIT_HIGH:
-    BTFSS PORTB, ECHO_PIN  ; Check if Echo pin is high
-    GOTO WAIT_HIGH
-    RETURN
+global	sensor_setup, sensor_trigger, sensor_distance
 
-MEASURE_PULSE:
-    CLRF TMR0L             ; Reset Timer0 for pulse duration measurement
-    CLRF TMR0H
-WAIT_LOW:
-    BTFSC PORTB, ECHO_PIN  ; Wait for Echo pin to go low
-    GOTO WAIT_LOW
-    MOVF TMR0L, W          ; Store low byte of timer
-    MOVWF PULSE_WIDTH
-    RETURN
-
-; Main program
-MAIN:
-    CALL INIT
-LOOP:
-    CALL SEND_TRIGGER      ; Send trigger signal
-    CALL WAIT_FOR_ECHO     ; Wait for Echo pin to go high
-    CALL MEASURE_PULSE     ; Measure the pulse duration
-    MOVF PULSE_WIDTH, W    ; Get the measured time
-    SUBLW TIMEOUT          ; Check if time exceeds the timeout
-    BTFSS STATUS, C        ; If no carry, object detected
-    GOTO OBJECT_DETECTED
-    ; Otherwise, no object detected
-    GOTO NO_OBJECT
-
-OBJECT_DETECTED:
-    ; Code to handle object detected
-    ; You can implement distance calculation here
-    GOTO LOOP
-
-NO_OBJECT:
-    ; Code to handle no object detected
-    GOTO LOOP
-
-; Delay subroutine for 10 탎
-DELAY_10US:
-    MOVLW D'10'            ; Load the cycle count for 10 탎 (adjust based on clock)
-    MOVWF COUNTER
-DELAY_LOOP:
-    DECFSZ COUNTER, F
-    GOTO DELAY_LOOP
-    RETURN
-
-; End program
-    END
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Setup Sensors and Trigger rountine	                                     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+psect	sensor_code,class=CODE
     
+sensor_setup:
+    bcf		TRISE, 3,  A
+    bcf		TRISF, 7, A
+    bsf		TRISE, 3, A		    ; set RE6 as trigger 
+    bsf		TRISF, 7, A		    ; Set RE7 as echo
+    clrf	LATE, A
+    clrf	LATF, A
+    return          
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;Send a short pulse via RE6 to trigger the ultrasonic sensor			;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+sensor_trigger:
+    bcf		PORTE, 3, A		    ;Trigger is Low
+    call	delay_10us
+    bsf		PORTE, 3, A		    ;Trigger is High
+    call	delay_10us
+    bcf		PORTE, 3, A		    ;Trigger is Low
+    ;bsf	PORTE, PORTE_RE3_POSN, A    ;RE3 high: send trigger pulse
+    ;nop
+    ;nop
+    ;bcf	PORTE, PORTE_RE3_POSN, A    ;RE3 low: end trigger pulse
+    ;bsf	TRISE, PORTE_RE3_POSN, A    ;RE3 input
+    retfie
+
+sensor_distance:
+    ; Check high byte of Echo_Time
+    movf    count_high, W, A          ; Load high byte of Timer1 value
+    iorwf   count_high, W, A          ; Check if high byte is non-zero
+    btfsc   STATUS, 2, A               ; Skip if Z is set (Echo_Time_H == 0)
+    goto    Distance_Unsafe            ; Unsafe if Echo_Time_H > 0
+
+    ; Compare low byte of Echo_Time with safety_dist
+    movf    count_low, W, A          ; Load low byte of Timer1 value
+    subwf   safety_dist, W, A          ; Subtract safety_dist from Echo_Time_L
+    btfsc   STATUS, 0, A                 ; Check carry bit (safety_dist >= Echo_Time_L)
+    goto    Distance_Safe              ; Safe if safety distance >= Echo_Time_L
+
+Distance_Unsafe:
+    bcf    STATUS, 2, A			; Clear Z flag (unsafe)
+    return
+
+Distance_Safe:
+    bsf     STATUS, 2, A		; Set Z flag (safe)
+    return
+
+delay_10us:
+    nop	          ; Adjust based on clock speed, usually ~4 cycles per NOP
+    nop
+    nop
+    nop
+    RETURN
+end
+  
