@@ -1,6 +1,6 @@
 #include <xc.inc>
     
-global  CCP_setup, CCP_interrupt, CCP_reset, CCP_capture, T1_setup
+global  CCP_setup, CCP_interrupt, CCP_reset, CCP_capture, T1_setup,ECCP1CON
 global  count_high, count_low
 
 psect udata_acs
@@ -15,6 +15,13 @@ CCP_setup:
     movlw	00000100B		    ;Interrupt every falling edge edge
     movwf	ECCP1CON, A
     bsf		PIE1, 2, A		    ;Enable CCP1 interrupt
+    banksel OSCCON    ; select OSCCON Bank
+    movlw 0b01110010  ; SCS=10 (internal oscillator)?IRCF=111 (8 MHz)
+    movwf OSCCON,A    ; set osccon registor
+    
+WAIT_OSC:
+    btfss OSCCON, 2  ,A ; wait for stable
+    goto WAIT_OSC     
     return 
     
 T1_setup:
@@ -26,14 +33,14 @@ T1_setup:
     clrf	CCPR1H, A		    ;Clear CCP1 high byte
     clrf	TMR1L, A		    ;Clear Timer 1 low byte
     clrf	TMR1H, A		    ;Clear Timer 1 high byte
-    movlw	01001001B		    ;Enable Timer 1 with prescaler 1:4
+    movlw	01101001B		    ;Enable Timer 1 with prescaler 1:4 (5 and 4 bits is 1 and 0)(1:8 need 5,4 bit to be 11)
     movwf	T1CON, A		    
     return
 
 CCP_interrupt:				    ;Interrupt routine
-    ;bcf	PIR1, 0, A		    ;Clear Timer 1 interrupt flag
+    bcf	        PIR1, 0, A		    ;Clear Timer 1 interrupt flag, everytime it interrupt, 0th bit of PIR1 become)
     btfsc	PIR1, 2, A		    ;Check if CCP1 interrupt
-    goto	CCP_Echo_Capture
+    goto	CCP_capture
     retfie				    ;Return from interrupt routine
     
 CCP_capture:
