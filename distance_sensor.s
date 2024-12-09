@@ -1,60 +1,57 @@
 #include <xc.inc>
-    
-    
-extrn	CCP_capture ,count_high, count_low, T1_setup, CCP_setup
-extrn	safety_dist   
 
-global	sensor_setup, sensor_trigger, sensor_distance
+extrn	CCP_capture, count_high, count_low, T1_setup, CCP_setup
+extrn	safety_dist, Motors_setup, Forward, Backward, Turn_left, Turn_right, Stop, Start_motors
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Setup Sensors and Trigger rountine	                                     ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-psect	sensor_code,class=CODE
-    
+psect udata_acs
+dist_cond:	ds 1
+
+global	sensor_setup, sensor_trigger, Ping_distance
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Setup Sensors and Trigger routine	                                     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+psect sensor_code, class=CODE
+
 sensor_setup:
     bcf		TRISE, 3,  A
     bcf		TRISF, 7, A
-    bsf		TRISE, 3, A		    ; set RE6 as trigger 
-    bsf		TRISF, 7, A		    ; Set RE7 as echo
+    bsf		TRISE, 3, A		    ; Set RE3 as trigger
+    bsf		TRISF, 7, A		    ; Set RF7 as echo
     clrf	LATE, A
     clrf	LATF, A
     return          
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Send a short pulse via RE6 to trigger the ultrasonic sensor			;
+; Send a short pulse via RE6 to trigger the ultrasonic sensor			;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 sensor_trigger:
-    bcf		PORTE, 3, A		    ;Trigger is Low
+    bcf		PORTE, 3, A		    ; Trigger is Low
     call	delay_10us
-    bsf		PORTE, 3, A		    ;Trigger is High
+    bsf		PORTE, 3, A		    ; Trigger is High
     call	delay_10us
-    bcf		PORTE, 3, A		    ;Trigger is Low
-    ;bsf	PORTE, PORTE_RE3_POSN, A    ;RE3 high: send trigger pulse
-    ;nop
-    ;nop
-    ;bcf	PORTE, PORTE_RE3_POSN, A    ;RE3 low: end trigger pulse
-    ;bsf	TRISE, PORTE_RE3_POSN, A    ;RE3 input
+    bcf		PORTE, 3, A		    ; Trigger is Low
     retfie
 
-sensor_distance:
-    ; Check high byte of Echo_Time
-    movf    count_high, W, A          ; Load high byte of Timer1 value
-    iorwf   count_high, W, A          ; Check if high byte is non-zero
-    btfsc   STATUS, 2, A               ; Skip if Z is set (Echo_Time_H == 0)
-    goto    Distance_Unsafe            ; Unsafe if Echo_Time_H > 0
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Compare high byte and low byte with threshold to determine safety	       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Ping_distance:
+    ; Compare count_high with 0x04 (threshold)
+    movlw   0x04                    ; Load threshold value
+    subwf   count_high, W, A        ; Subtract count_high from 0x04
+    btfss   STATUS, 0, A            ; Check carry bit (count_high >= 0x04)
+    goto    Distance_Safe           ; Safe if count_high >= 0x04
 
-    ; Compare low byte of Echo_Time with safety_dist
-    movf    count_low, W, A          ; Load low byte of Timer1 value
-    subwf   safety_dist, W, A          ; Subtract safety_dist from Echo_Time_L
-    btfsc   STATUS, 0, A                 ; Check carry bit (safety_dist >= Echo_Time_L)
-    goto    Distance_Safe              ; Safe if safety distance >= Echo_Time_L
+    ; If high count is less than threshold
+    goto    Distance_Unsafe
 
 Distance_Unsafe:
-    bcf    STATUS, 2, A			; Clear Z flag (unsafe)
+    call    Stop                    ; Call Stop routine (unsafe distance)
     return
 
 Distance_Safe:
-    bsf     STATUS, 2, A		; Set Z flag (safe)
+    call    Start_motors            ; Call Start_motors routine (safe distance)
     return
 
 delay_10us:
@@ -63,5 +60,5 @@ delay_10us:
     nop
     nop
     RETURN
+
 end
-  
