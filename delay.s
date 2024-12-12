@@ -41,3 +41,4 @@ delay_loop_2:
     subwfb 	counter_h, F, A	    ; no carry when 0x00 -> 0xff
     bc		delay_loop_2	    ; carry, then loop again
     return			    ; carry reset so return
+end
