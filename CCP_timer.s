@@ -1,29 +1,24 @@
 #include <xc.inc>
-    
-global  CCP_setup, CCP_interrupt, CCP_reset, CCP_capture, T1_setup,ECCP1CON
-global  count_high, count_low
+
+global  T1_setup, CCP_setup, CCP_Interrupt, CCP_reset, CCP_Echo_Capture
+global	Echo_Time_H, Echo_Time_L
 
 psect udata_acs
-count_high:	    ds 1
-count_low:	    ds 1    
+Echo_Time_H:	    ds 1
+Echo_Time_L:	    ds 1
     
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Setup and Initialization for Timer 1 and CCP module.				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+psect	ccp_code,class=CODE
 
-psect CCP_code, class=CODE
-    
 CCP_setup:
-    bcf         TRISF, 7, A       ;set portF7 as input (ccp1)
+    bsf		TRISF, 7, A		    ;RF7=CCP1 as input
     movlw	00000100B		    ;Interrupt every falling edge edge
     movwf	ECCP1CON, A
     bsf		PIE1, 2, A		    ;Enable CCP1 interrupt
-    banksel OSCCON    ; select OSCCON Bank
-    movlw 0b01110010  ; SCS=10 (internal oscillator)?IRCF=111 (8 MHz)
-    movwf OSCCON,A    ; set osccon registor
-    
-WAIT_OSC:
-    btfss OSCCON, 2  ,A ; wait for stable
-    goto WAIT_OSC     
-    return 
-    
+    return
+
 T1_setup:
     bsf		INTCON, 6, A		    ;Enable peripheral interrupts (PEIE)
     bsf		INTCON, 7, A		    ;Enable Global interrupts (GIE)
@@ -33,19 +28,19 @@ T1_setup:
     clrf	CCPR1H, A		    ;Clear CCP1 high byte
     clrf	TMR1L, A		    ;Clear Timer 1 low byte
     clrf	TMR1H, A		    ;Clear Timer 1 high byte
-    movlw	01101001B		    ;Enable Timer 1 with prescaler 1:4 (5 and 4 bits is 1 and 0)(1:8 need 5,4 bit to be 11)
+    movlw	01001001B		    ;Enable Timer 1 with prescaler 1:4
     movwf	T1CON, A		    
     return
 
-CCP_interrupt:				    ;Interrupt routine
-    bcf	        PIR1, 0, A		    ;Clear Timer 1 interrupt flag, everytime it interrupt, 0th bit of PIR1 become)
+CCP_Interrupt:				    ;Interrupt routine
+    ;bcf	PIR1, 0, A		    ;Clear Timer 1 interrupt flag
     btfsc	PIR1, 2, A		    ;Check if CCP1 interrupt
-    goto	CCP_capture
+    goto	CCP_Echo_Capture
     retfie				    ;Return from interrupt routine
     
-CCP_capture:
-    movff	CCPR1H, count_high, A	    ;Store high byte of Timer 1 
-    movff	CCPR1L, count_low, A	    ;Store low byte of Timer 1
+CCP_Echo_Capture:
+    movff	CCPR1H, Echo_Time_H, A	    ;Store high byte of Timer 1 
+    movff	CCPR1L, Echo_Time_L, A	    ;Store low byte of Timer 1
     clrf	PIR1, A			    ;Clear all flags
     clrf	CCPR1L, A		    ;Clear CCP1 count
     clrf	CCPR1H, A
@@ -64,4 +59,5 @@ CCP_reset:
     return
 end
 
+    
     
