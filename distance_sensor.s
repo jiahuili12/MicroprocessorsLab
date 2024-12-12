@@ -1,64 +1,91 @@
 #include <xc.inc>
+    
+extrn	Stop, delay, Backward
+extrn	Echo_Time_H, Echo_Time_L
+extrn	safety_dist_h, safety_dist_l
 
-extrn	CCP_capture, count_high, count_low, T1_setup, CCP_setup
-extrn	safety_dist, Motors_setup, Forward, Backward, Turn_left, Turn_right, Stop, Start_motors
+global	sensor_setup, sensor_trigger, compare_distance, US_measuring
 
 psect udata_acs
-dist_cond:	ds 1
+US_measuring:	ds 1			    ; flag to indicate if measurement in progress
 
-global	sensor_setup, sensor_trigger, Ping_distance
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Setup Sensors and Trigger routine	                                     ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-psect sensor_code, class=CODE
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Setup Sensors and Trigger rountine	                                     ;
+;   Trigger: RE3, Echo: RC2						     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+psect	sensor_code,class=CODE
+    
 sensor_setup:
-    bcf		TRISE, 3,  A
-    bcf		TRISF, 7, A
-    bsf		TRISE, 3, A		    ; Set RE3 as trigger
-    bsf		TRISF, 7, A		    ; Set RF7 as echo
-    clrf	LATE, A
-    clrf	LATF, A
+    bcf		TRISE, 3,  A		    ; set RE3 as trigger
+    ;bcf		TRISE, 1, A
+    ;bsf		TRISE, 3, A		     
+    ;bsf		TRISC, 2, A		
+    ;bcf		LATE, 3, A
+    ;bcf	    	LATE, 1, A
+    clrf	US_measuring, A
     return          
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Send a short pulse via RE6 to trigger the ultrasonic sensor			;
+; Send a short pulse via RE3 to trigger the ultrasonic sensor			;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    
 sensor_trigger:
-    bcf		PORTE, 3, A		    ; Trigger is Low
+    btfsc	PORTC, 2, A		    ; Check if Echo is Low
+    return
+
+    bcf		PORTE, 3, A		    ; Ensure Trigger is Low
+    movlw	1			    ; Delay for 1 ms
+    call	delay
+    bsf		PORTE, 3, A		    ; Trigger is High ~ 10us
     call	delay_10us
-    bsf		PORTE, 3, A		    ; Trigger is High
-    call	delay_10us
-    bcf		PORTE, 3, A		    ; Trigger is Low
-    retfie
+    bcf		PORTE, 3, A		    ; Trigger is Low again
+    bsf		US_measuring, 0, A	    ; Set US_measuring <0> = 1
+    return
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Compare high byte and low byte with threshold to determine safety	       ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-Ping_distance:
-    ; Compare count_high with 0x04 (threshold)
-    movlw   0x04                    ; Load threshold value
-    subwf   count_high, W, A        ; Subtract count_high from 0x04
-    btfss   STATUS, 0, A            ; Check carry bit (count_high >= 0x04)
-    goto    Distance_Safe           ; Safe if count_high >= 0x04
+compare_distance:			    ; Compare the High Byte of distance
+    movf    Echo_Time_H, W, A
+    subwf   safety_dist_h, W, A             ; W = safety_dist_h - Echo_Time_H
 
-    ; If high count is less than threshold
-    goto    Distance_Unsafe
+    btfsc   STATUS, 2                       ; Zero = 1? (Echo_Time_H == safety_dist_h)
+    goto    compare_distance_l              ; If equal, jump to low byte comparison
 
+    btfss   STATUS, 0                       ; Carry = 0? (Echo_Time_H > safety_dist_h)
+    goto    Distance_Unsafe                 ; If greater, jump to unsafe
+
+    goto    Distance_Safe                   ; Otherwise (Echo_Time_H < safety_dist_h), jump to safe
+    
+compare_distance_l:
+    ; High bytes are equal, compare low bytes
+    movf	Echo_Time_L, W, A
+    subwf	safety_dist_l, W, A	    ; W = safety_dist_l - Echo_Time_L
+    btfsc	STATUS, 0		    ; If carry set, Echo_Time_L <= safety_dist_l
+    goto	Distance_Safe
+    goto	Distance_Unsafe
+    
+    
 Distance_Unsafe:
-    call    Stop                    ; Call Stop routine (unsafe distance)
+    call	Backward
     return
 
 Distance_Safe:
-    call    Start_motors            ; Call Start_motors routine (safe distance)
     return
 
-delay_10us:
-    nop	          ; Adjust based on clock speed, usually ~4 cycles per NOP
-    nop
-    nop
-    nop
-    RETURN
 
+delay_10us:
+    nop					    ; Adjust based on clock speed, usually ~4 cycles per NOP
+    nop					    ; Checked on Osilloscope, the delay is ~ 10us.
+    nop
+    nop
+    nop
+    nop
+    nop	
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    return
 end
