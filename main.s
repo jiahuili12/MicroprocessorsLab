@@ -1,47 +1,51 @@
 #include <xc.inc>
 
-extrn	sensor_setup, sensor_send_signal, sensor_distance
+extrn	sensor_setup, sensor_trigger, compare_distance
 extrn	motor_setup, Forward, Backward, Left, Right, Stop, motor_test
+extrn	T1_setup, CCP_setup, CCP_reset, CCP_Interrupt
+extrn	Keypad_Setup, Keypad_Read
+extrn	Forward, Backward, Left, Right
+extrn	US_measuring
 
-global	safety_dist
+global	safety_dist_h, safety_dist_l
     
 psect	udata_acs
-safety_dist:	ds 1			; Reserve 1 bit for safety distance
-
+safety_dist_h:	ds 1				    ; Reserve 1 byte for safety distance high
+safety_dist_l:	ds 1				    ; Reserve 1 byte for safety distance low
+key_value:	ds 1				    ; Reserve 1 byte for keypad value
+    
 psect code, abs
  
 rst:
     org 0x0
     goto setup
-
- 
-setup:
-    call motor_setup			    ; Initialize motor setup
-    call sensor_setup			    ; Initialize sensor setup
-    call CCP_setup			    ; Initialize CCP module
     
-start:    
-    movlw	0x0A			    
-    movwf	safety_dist, A
+interrupt:
+    org 0x08
+    goto    CCP_Interrupt
+
+setup:
+    call	motor_setup			    ; Initialize motor setup
+    call	Keypad_Setup			    ; Initialize keypad setup
+    call	sensor_setup			    ; Initialize sensor setup
+    call	CCP_setup			    ; Initialize CCP module
+    call	T1_setup
+     
+    movlw	0x03				    ; Setup the safety distance ?? cm: Fosc=8 Mhz, Prescaler 1:4. 0x01 is 10cm
+    movwf	safety_dist_h, A
+    movlw	0x26
+    movwf	safety_dist_l, A	    
     
 main_loop:
-    call	sensor_send_signal	    ; Send ultrasonic pulse
-    call	CCP_reset		    ; Reset CCP and Timer
-    call	CCP_setup		    ; Re-enable CCP and Timer
-
-    call	sensor_distance		    ; Check distance
-    btfss	STATUS, 2, A		    ; Check if Z flag is set (safe distance), status register bit 2 is z = zero bit. 
-					    ; if Z=0(distance<safety distance), jumps to emergency_stop
-    goto	emergency_stop
-
-    goto	continue_vehicle
-
-    
-emergency_stop:
-    call	Stop			    ; Stop the vehicle
-
-continue_vehicle:
-    call	motor_test
+    ;call	motor_test
+    call	sensor_trigger			    ; Send ultrasonic pulse
+    call	Keypad_Read
+    ;call	CCP_reset			    ; Reset CCP and Timer
+    ;call	CCP_Interrupt			    ; ISR is automatically called when a capture interrupt occurs
+    ;btfss	US_measuring, 0 ,A		    ; If US_measuring<0> = 1, skip next
+    call	compare_distance
     goto	main_loop
 
+    
+; end interrupt
 end rst
